@@ -1,24 +1,19 @@
-import re
 import os
-import ollama
+import re
+import requests
 
-OLLAMA_MODEL = "llama3"
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 
 def clean_ocr_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
 
-    # Remove HTML tags like <b>...</b>
     text = re.sub(r"<[^>]+>", "", text)
-
-    # Normalize line endings and spaces
     text = text.replace("\r", "\n")
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
-
-    # Remove junk standalone symbols but preserve useful punctuation
     text = re.sub(r"[^\S\n]*[\*\|\~`]+[^\S\n]*", " ", text)
 
     return text.strip()
@@ -28,8 +23,7 @@ def preserve_sensitive_tokens(text: str):
     if not isinstance(text, str):
         return "", {}
 
-    # Preserve numbers, dates, ids, codes, money-like values
-    pattern = r'\b(?:\d[\d,./:-]*|[A-Z]{2,}\d+|DOC\d+|NEW\S*)\b'
+    pattern = r"\b(?:\d[\d,./:-]*|[A-Z]{2,}\d+|DOC\d+|NEW\S*)\b"
     matches = re.findall(pattern, text)
 
     placeholders = {}
@@ -49,6 +43,7 @@ def restore_sensitive_tokens(text: str, placeholders: dict):
 
     for placeholder, original in placeholders.items():
         text = text.replace(placeholder, original)
+
     return text
 
 
@@ -82,6 +77,28 @@ def strip_llm_boilerplate(text: str) -> str:
     return text.strip()
 
 
+def call_ollama(prompt: str) -> str:
+    url = f"{OLLAMA_HOST}/api/generate"
+
+    response = requests.post(
+        url,
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0
+            }
+        },
+        timeout=600,
+    )
+
+    response.raise_for_status()
+    data = response.json()
+
+    return data.get("response", "").strip()
+
+
 def llm_refine_text(ocr_text: str) -> str:
     cleaned_text = clean_ocr_text(ocr_text)
     masked_text, placeholders = preserve_sensitive_tokens(cleaned_text)
@@ -109,15 +126,7 @@ Corrected Text:
 
     print("\n[LLM] Starting OCR correction...")
 
-    response = ollama.generate(
-        model=OLLAMA_MODEL,
-        prompt=prompt,
-        options={
-            "temperature": 0,
-        }
-    )
-
-    text = response["response"].strip()
+    text = call_ollama(prompt)
 
     print("[LLM] OCR correction completed.")
     print("[LLM] Corrected text preview:")
@@ -125,4 +134,5 @@ Corrected Text:
 
     final_text = restore_sensitive_tokens(text, placeholders)
     final_text = strip_llm_boilerplate(final_text)
+
     return clean_ocr_text(final_text)
