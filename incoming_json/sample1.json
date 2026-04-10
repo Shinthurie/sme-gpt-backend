@@ -1,0 +1,15 @@
+{
+  "document_id": "NEW_SI_010",
+  "document_type": "invoice",
+  "company_name": "සහන් ට්‍රේඩර්ස්",
+  "supplier_name": "ලංකා වෙළඳ සමාගම",
+  "date": "2026-03-25",
+  "item_description": "මුද්‍රණ කදාසි",
+  "quantity": 12,
+  "unit_price": 1000,
+  "raw_total_amount": 10000,
+  "currency": "LKR",
+  "status": "unpaid",
+  "language": "sinhala",
+  "raw_text": "ඉන්වොය්ස්. සහන් ට්‍රේඩර්ස්. මුද්‍රණ කදාසි 12. එකක මිල 1000. මුලු ගාන 10000."
+}

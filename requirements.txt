@@ -1,0 +1,15 @@
+pandas
+matplotlib
+seaborn
+langchain
+langchain-ollama
+ollama
+opencv-python
+pdf2image
+pillow
+requests
+numpy
+python-dotenv
+fastapi
+uvicorn
+python-multipart

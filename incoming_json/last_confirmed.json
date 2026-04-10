@@ -1,0 +1,56 @@
+{
+  "document_id": "",
+  "document_type": "receipt",
+  "order_id": "8",
+  "flow_type": "receivable",
+  "company_name": "චාමර සැලෝන්",
+  "supplier_name": "NULL",
+  "date": "9/8/2025",
+  "raw_total_amount": "1300",
+  "final_total_amount": "1300",
+  "payable_amount": 200,
+  "cash_return": 200,
+  "currency": "Rs",
+  "received_status": "NULL",
+  "paid_status": "not_paid",
+  "status": "confirmed",
+  "language": "",
+  "corrected_text": "නොරූවන් සරණයී\nචාමර සැලෝන්\nකඩවන\n0772692057\nDate: 9/8/2025 4:23 2 PM\nOrder ID: 8 600\nNo. ජෙවාව\nමුදල\nකොණ්ඩය කැපීමට (වැඩිහිටි)\n600\n2 කොණ්ඩය කැපීමට (පොඩිහිට්)\n400\n3 රැවල කැපීමට\n300\nRs\nTotal:\n.300\nRs\nCash return:\n200\nBe Focus Your Look",
+  "items": [
+    {
+      "description": "කොණ්ඩය කැපීමට (වැඩිහිටි)",
+      "quantity": "1",
+      "unit_price": 600
+    },
+    {
+      "description": "කොණ්ඩය කැපීමට (පොඩිහිට්)",
+      "quantity": 1,
+      "unit_price": 400
+    },
+    {
+      "description": "රැවල කැපීමට",
+      "quantity": 1,
+      "unit_price": 300
+    }
+  ],
+  "raw_text": "නොරූවන් සරණයී\nචාමර සැලෝන්\nකඩවන\n0772692057\nDate: 9/8/2025 4:23 PM\nOrder ID: 8\nNo. ජෙවාව\nමුදල\nකොණ්ඩය කැපීමට (වැඩිහිටි)\n600\n2 කොණ්ඩය කැපීමට (පොඩිහිට්)\n400\n3 රැවල කැපීමට\n300\nRs\nTotal:\n.300\nRs\nCash return:\n200\nBe Focus Your Look",
+  "ocr_selected_version": "orig",
+  "ocr_scores": {
+    "orig": {
+      "score": 16.96,
+      "text_length": 223,
+      "line_count": 21
+    },
+    "P": {
+      "score": 8.84,
+      "text_length": 242,
+      "line_count": 20
+    },
+    "M": {
+      "score": 16.82,
+      "text_length": 216,
+      "line_count": 20
+    }
+  },
+  "ocr_failures": {}
+}
