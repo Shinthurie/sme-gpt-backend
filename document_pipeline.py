@@ -13,7 +13,7 @@ from ocr_to_json_extractor import extract_structured_json_from_text
 # =========================
 # CONFIG
 # =========================
-COLAB_OCR_URL = "https://catechizable-uncongruously-armani.ngrok-free.dev"
+COLAB_OCR_URL = None  
 POPPLER_PATH = None
 
 TEMP_BASE = Path("temp_processing")
@@ -143,14 +143,12 @@ def preprocess_image(orig_path: Path):
 # OCR + LLM PREVIEW
 # =========================
 def build_preview_from_versions(version_paths: dict) -> dict:
-    if not COLAB_OCR_URL or COLAB_OCR_URL == "PASTE_YOUR_COLAB_PUBLIC_URL_HERE":
-        raise ValueError("COLAB_OCR_URL is not set in document_pipeline.py")
 
     ocr_result = send_images_to_colab_ocr(
         orig_path=version_paths["orig"],
         p_path=version_paths["P"],
         m_path=version_paths["M"],
-        colab_url=COLAB_OCR_URL
+        colab_url=None
     )
 
     versions = ocr_result.get("versions", {})
