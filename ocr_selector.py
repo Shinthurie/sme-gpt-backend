@@ -1,5 +1,6 @@
 import re
 
+client = Client(host=OLLAMA_HOST)
 
 def score_ocr_text(text: str) -> float:
     if not text or not isinstance(text, str):

@@ -2,7 +2,9 @@ import re
 import ollama
 
 OLLAMA_MODEL = "llama3"
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
+client = Client(host=OLLAMA_HOST)
 
 def clean_ocr_text(text: str) -> str:
     if not isinstance(text, str):
