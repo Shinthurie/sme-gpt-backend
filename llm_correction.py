@@ -79,60 +79,67 @@ def strip_llm_boilerplate(text: str) -> str:
 
 def call_ollama(prompt: str) -> str:
     url = f"{OLLAMA_HOST}/api/generate"
+    print(f"[LLM_CORRECTION] Calling Ollama URL: {url}", flush=True)
+    print(f"[LLM_CORRECTION] Model: {OLLAMA_MODEL}", flush=True)
 
-    response = requests.post(
-        url,
-        json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0
-            }
-        },
-        timeout=600,
-    )
+    try:
+        response = requests.post(
+            url,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0
+                }
+            },
+            timeout=600,
+        )
+        print(f"[LLM_CORRECTION] Response status: {response.status_code}", flush=True)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("response", "").strip()
+    except requests.exceptions.ConnectionError as e:
+        raise Exception(
+            f"Could not connect to Ollama at {OLLAMA_HOST}. "
+            f"Please start Ollama and run the model first. Error: {e}"
+        )
+    except requests.exceptions.HTTPError as e:
+        raise Exception(f"Ollama HTTP error: {e}. Response: {response.text}")
+    except requests.exceptions.Timeout:
+        raise Exception("Ollama correction request timed out.")
 
-    response.raise_for_status()
-    data = response.json()
 
-    return data.get("response", "").strip()
+def llm_refine_text(raw_text: str) -> str:
+    print("[LLM_CORRECTION] Starting OCR text refinement...", flush=True)
 
+    cleaned = clean_ocr_text(raw_text)
+    if not cleaned:
+        print("[LLM_CORRECTION] Cleaned text is empty", flush=True)
+        return ""
 
-def llm_refine_text(ocr_text: str) -> str:
-    cleaned_text = clean_ocr_text(ocr_text)
-    masked_text, placeholders = preserve_sensitive_tokens(cleaned_text)
+    masked, placeholders = preserve_sensitive_tokens(cleaned)
 
     prompt = f"""
-You are correcting OCR text from a financial document written in Sinhala and English.
+You are correcting OCR text from Sinhala-English financial documents.
 
-Rules:
-- Correct OCR spelling mistakes in Sinhala and English
-- Preserve the original financial meaning
-- DO NOT change placeholders like __TOKEN_0__
-- DO NOT invent missing content
-- Remove meaningless OCR junk symbols
-- Keep the text readable and structured
-- Return only the corrected text
-- Do not add explanations
-- Do not add notes
-- Do not say "Here is the corrected text"
+STRICT RULES:
+- Correct only OCR spelling mistakes
+- Preserve Sinhala text in Sinhala
+- Do NOT translate Sinhala to English
+- Do NOT rewrite item names
+- Do NOT change numbers, prices, totals, dates, IDs
+- Return same structure
+- Return ONLY corrected text
 
-Text:
-{masked_text}
-
-Corrected Text:
+OCR text:
+{masked}
 """.strip()
 
-    print("\n[LLM] Starting OCR correction...")
+    corrected = call_ollama(prompt)
 
-    text = call_ollama(prompt)
+    corrected = strip_llm_boilerplate(corrected)
+    corrected = restore_sensitive_tokens(corrected, placeholders)
 
-    print("[LLM] OCR correction completed.")
-    print("[LLM] Corrected text preview:")
-    print(text[:500])
-
-    final_text = restore_sensitive_tokens(text, placeholders)
-    final_text = strip_llm_boilerplate(final_text)
-
-    return clean_ocr_text(final_text)
+    print("[LLM_CORRECTION] OCR text refinement completed", flush=True)
+    return corrected

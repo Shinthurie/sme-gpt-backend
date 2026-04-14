@@ -4,17 +4,16 @@ import requests
 
 def send_images_to_colab_ocr(orig_path: str, p_path: str, m_path: str, colab_url: str = None) -> dict:
     """
-    Sends orig, P, and M image versions to the Modal OCR API.
-    Keeps the old function name so the rest of the backend still works.
+    Sends orig, P, and M image versions to the Google Colab OCR API.
     Returns parsed JSON response.
     """
 
-    modal_url = colab_url or os.getenv("MODAL_OCR_URL")
+    final_colab_url = "https://catechizable-uncongruously-armani.ngrok-free.dev/"
 
-    if not modal_url:
-        raise ValueError("MODAL_OCR_URL is empty.")
+    if not final_colab_url:
+        raise ValueError("COLAB_OCR_URL is empty. Please set it before running the backend.")
 
-    url = modal_url.rstrip("/") + "/ocr"
+    url = final_colab_url.rstrip("/") + "/ocr"
 
     files = {}
     try:
@@ -22,11 +21,11 @@ def send_images_to_colab_ocr(orig_path: str, p_path: str, m_path: str, colab_url
         files["p_img"] = open(p_path, "rb")
         files["m_img"] = open(m_path, "rb")
 
-        print("\n=== SENDING TO MODAL OCR API ===")
-        print("URL:", url)
-        print("orig_path:", orig_path)
-        print("p_path:", p_path)
-        print("m_path:", m_path)
+        print("\n=== OCR REQUEST START ===", flush=True)
+        print(f"[OCR] URL: {url}", flush=True)
+        print(f"[OCR] orig_path: {orig_path}", flush=True)
+        print(f"[OCR] p_path: {p_path}", flush=True)
+        print(f"[OCR] m_path: {m_path}", flush=True)
 
         response = requests.post(
             url,
@@ -35,24 +34,26 @@ def send_images_to_colab_ocr(orig_path: str, p_path: str, m_path: str, colab_url
                 "p_img": (os.path.basename(p_path), files["p_img"], "image/png"),
                 "m_img": (os.path.basename(m_path), files["m_img"], "image/png"),
             },
-            timeout=600
+            timeout=600,
         )
 
-        print("Response status:", response.status_code)
-        print("Response preview:", response.text[:1500])
+        print(f"[OCR] Response status: {response.status_code}", flush=True)
+        print(f"[OCR] Response preview: {response.text[:1500]}", flush=True)
 
         response.raise_for_status()
+
+        print("=== OCR REQUEST END ===\n", flush=True)
         return response.json()
 
     except requests.exceptions.Timeout:
-        raise Exception("Modal OCR API timed out.")
+        raise Exception("Colab OCR API timed out.")
 
     except requests.exceptions.ConnectionError as e:
-        raise Exception(f"Could not connect to Modal OCR API: {e}")
+        raise Exception(f"Could not connect to Colab OCR API: {e}")
 
     except requests.exceptions.HTTPError as e:
         raise Exception(
-            f"HTTP error from Modal OCR API: {e}\n"
+            f"HTTP error from Colab OCR API: {e}\n"
             f"Response body: {response.text if 'response' in locals() else 'No response'}"
         )
 

@@ -121,15 +121,18 @@ def calculate_confidence(original_text: str, dictionary_text: str, llm_text: str
 
 
 def hybrid_correct_text(text: str):
+    print("[CORRECTION_ENGINE] Running hybrid text correction...", flush=True)
     dictionary_text = dictionary_correct_text(text)
 
     try:
         llm_text = llm_refine_text(dictionary_text)
-    except Exception:
+    except Exception as e:
+        print(f"[CORRECTION_ENGINE] LLM correction failed, using dictionary text. Error: {e}", flush=True)
         llm_text = dictionary_text
 
     confidence = calculate_confidence(text, dictionary_text, llm_text)
 
+    print(f"[CORRECTION_ENGINE] Hybrid correction complete. Confidence={confidence}", flush=True)
     return {
         "original_text": text,
         "dictionary_text": dictionary_text,
@@ -140,14 +143,8 @@ def hybrid_correct_text(text: str):
 
 
 def normalize_items(items):
-    """
-    Converts item list into clean normalized items with line totals.
-    Expected input:
-    [
-      {"description": "...", "quantity": 2, "unit_price": 100},
-      ...
-    ]
-    """
+    print("[CORRECTION_ENGINE] Normalizing items...", flush=True)
+
     if not isinstance(items, list):
         return []
 
@@ -169,139 +166,66 @@ def normalize_items(items):
             "correction_confidence": corrected_desc_result["confidence_score"]
         })
 
+    print(f"[CORRECTION_ENGINE] Normalized {len(normalized)} items", flush=True)
     return normalized
 
 
 def summarize_items_for_storage(items):
-    """
-    Flatten multi-line items into a text summary for CSV storage.
-    """
-    if not items:
-        return ""
+    if not isinstance(items, list) or not items:
+        return "NULL"
 
-    parts = []
+    lines = []
     for item in items:
-        parts.append(
-            f"{item['description']} (qty={item['quantity']}, unit_price={item['unit_price']}, line_total={item['line_total']})"
+        description = item.get("description", "")
+        quantity = item.get("quantity", 0)
+        unit_price = item.get("unit_price", 0)
+        line_total = item.get("line_total", 0)
+
+        lines.append(
+            f"{description} | qty={quantity} | unit_price={unit_price} | line_total={line_total}"
         )
-    return " | ".join(parts)
+
+    return " ; ".join(lines)
 
 
-def correct_record_fields(record: dict) -> tuple[dict, dict]:
-    corrected = deepcopy(record)
-    correction_log = {}
+def recalculate_totals(items):
+    if not isinstance(items, list):
+        return 0.0
 
-    text_fields = ["company_name", "supplier_name", "item_description", "raw_text"]
+    total = 0.0
+    for item in items:
+        try:
+            total += float(item.get("line_total", 0))
+        except Exception:
+            pass
 
-    for field in text_fields:
-        old_value = corrected.get(field, "")
-        if isinstance(old_value, str):
-            result = hybrid_correct_text(old_value)
-            new_value = result["final_text"]
-            corrected[field] = new_value
-
-            if new_value != old_value:
-                correction_log[field] = {
-                    "old": old_value,
-                    "dictionary_text": result["dictionary_text"],
-                    "llm_text": result["llm_text"],
-                    "new": new_value,
-                    "confidence_score": result["confidence_score"]
-                }
-
-    return corrected, correction_log
+    return round(total, 2)
 
 
-def validate_totals(record: dict) -> tuple[dict, dict]:
-    corrected = deepcopy(record)
+def correct_extracted_fields(extracted_json: dict):
+    print("[CORRECTION_ENGINE] Correcting extracted fields...", flush=True)
 
-    items = corrected.get("items", [])
-    raw_total = float(corrected.get("raw_total_amount", 0))
+    data = deepcopy(extracted_json)
 
-    if isinstance(items, list) and len(items) > 0:
-        calculated_total = sum(float(item.get("line_total", 0)) for item in items)
-    else:
-        quantity = float(corrected.get("quantity", 0))
-        unit_price = float(corrected.get("unit_price", 0))
-        calculated_total = quantity * unit_price
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        items = []
 
-    total_log = {
-        "raw_total_amount": raw_total,
-        "calculated_total_amount": calculated_total
-    }
+    normalized_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
 
-    if abs(calculated_total - raw_total) > 0.0001:
-        corrected["final_total_amount"] = calculated_total
-        corrected["total_status"] = "corrected"
-        total_log["status"] = "corrected"
-    else:
-        corrected["final_total_amount"] = raw_total
-        corrected["total_status"] = "valid"
-        total_log["status"] = "valid"
+        normalized_items.append({
+            "description": str(item.get("description", "")).strip(),
+            "quantity": item.get("quantity", 0),
+            "unit_price": item.get("unit_price", 0),
+        })
 
-    if str(corrected.get("document_type", "")).lower() == "receipt" and str(corrected.get("status", "")).lower() == "paid":
-        corrected["payable_amount"] = 0
-    else:
-        corrected["payable_amount"] = corrected["final_total_amount"]
+    data["items"] = normalized_items
+    data["correction_status"] = "text_only_preserved"
+    data["total_status"] = "original"
+    data["correction_confidence"] = 1.0
 
-    total_log["final_total_amount"] = corrected["final_total_amount"]
-    total_log["payable_amount"] = corrected["payable_amount"]
-
-    return corrected, total_log
-
-
-def json_to_record(json_data: dict) -> dict:
-    items = normalize_items(json_data.get("items", []))
-    item_summary = summarize_items_for_storage(items)
-
-    if items:
-        fallback_quantity = sum(item["quantity"] for item in items)
-        fallback_unit_price = 0
-        fallback_item_description = item_summary
-    else:
-        fallback_quantity = json_data.get("quantity", 0)
-        fallback_unit_price = json_data.get("unit_price", 0)
-        fallback_item_description = json_data.get("item_description", "")
-
-    record = {
-        "document_id": json_data.get("document_id", ""),
-        "document_type": json_data.get("document_type", ""),
-        "company_name": json_data.get("company_name", ""),
-        "supplier_name": json_data.get("supplier_name", ""),
-        "date": json_data.get("date", ""),
-        "item_description": fallback_item_description,
-        "quantity": fallback_quantity,
-        "unit_price": fallback_unit_price,
-        "raw_total_amount": json_data.get("raw_total_amount", 0),
-        "final_total_amount": json_data.get("raw_total_amount", 0),
-        "total_status": "unchecked",
-        "payable_amount": json_data.get("raw_total_amount", 0),
-        "currency": json_data.get("currency", "LKR"),
-        "status": json_data.get("status", "unpaid"),
-        "language": json_data.get("language", "english"),
-        "raw_text": json_data.get("raw_text", ""),
-        "corrected_text": "",
-        "source_json": json.dumps(json_data, ensure_ascii=False),
-        "correction_confidence": 0.0,
-        "correction_log": "",
-        "items_json": json.dumps(items, ensure_ascii=False)
-    }
-
-    corrected_record, correction_log = correct_record_fields(record)
-
-    raw_text_result = hybrid_correct_text(record.get("raw_text", ""))
-    corrected_record["corrected_text"] = raw_text_result["final_text"]
-    corrected_record["correction_confidence"] = raw_text_result["confidence_score"]
-
-    corrected_record["items"] = items
-    corrected_record, total_log = validate_totals(corrected_record)
-
-    corrected_record["correction_log"] = json.dumps({
-        "field_corrections": correction_log,
-        "total_check": total_log,
-        "items_count": len(items)
-    }, ensure_ascii=False)
-
-    corrected_record.pop("items", None)
-
-    return corrected_record
+    print("[CORRECTION_ENGINE] Field correction completed with numeric preservation", flush=True)
+    return data

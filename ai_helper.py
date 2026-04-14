@@ -1,134 +1,104 @@
-from langchain_ollama import OllamaLLM
-from langchain_core.prompts import PromptTemplate
+import os
+import json
+import requests
 
-chat_history = []
-llm = OllamaLLM(model="llama3")
-
-VALID_ACTIONS = [
-    "summary",
-    "payable_lookup",
-    "document_search",
-    "corrected_only",
-    "histogram",
-    "bar_chart",
-    "insights"
-]
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 
-def keyword_route(question: str):
-    q = question.lower()
+def call_ollama(prompt: str) -> str:
+    url = f"{OLLAMA_HOST}/api/generate"
 
-    if any(term in q for term in ["payable", "amount due", "how much payable", "ගෙවිය යුතු"]):
-        return "payable_lookup"
-
-    if any(term in q for term in ["corrected", "wrong totals", "fixed totals"]):
-        return "corrected_only"
-
-    if any(term in q for term in ["find document", "search", "show invoice", "document"]):
-        return "document_search"
-
-    if any(term in q for term in ["histogram", "distribution"]):
-        return "histogram"
-
-    if any(term in q for term in ["bar chart", "count chart"]):
-        return "bar_chart"
-
-    if any(term in q for term in ["insight", "analysis", "summary of data"]):
-        return "insights"
-
-    return None
-
-
-def normalize_action(response: str):
-    response = response.strip().lower()
-
-    for action in VALID_ACTIONS:
-        if action in response:
-            return action
-
-    return "summary"
-
-
-def decide_action(summary, question):
-    routed = keyword_route(question)
-    if routed:
-        return routed
-
-    prompt = PromptTemplate(
-        input_variables=["summary", "question"],
-        template="""
-You are a financial data analyst.
-
-Choose ONLY ONE action from:
-- summary
-- payable_lookup
-- document_search
-- corrected_only
-- histogram
-- bar_chart
-- insights
-
-Rules:
-- Return ONLY the action name
-- No explanation
-- If unsure, return summary
-
-Dataset:
-{summary}
-
-Question:
-{question}
-
-Answer:
-"""
+    response = requests.post(
+        url,
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0
+            }
+        },
+        timeout=600,
     )
 
-    chain = prompt | llm
-    response = chain.invoke({"summary": summary, "question": question})
-    return normalize_action(response)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("response", "").strip()
 
 
-def ask_ai(data, question):
-    global chat_history
+def build_fallback_answer(question: str, company_name: str, result: dict) -> str:
+    if not result.get("success"):
+        return result.get("explanation", "No answer could be generated.")
 
-    history_text = "\n".join(chat_history[-6:])
+    qtype = result.get("question_type", "summary")
+    metrics = result.get("metrics", {})
+    evidence = result.get("evidence", [])
 
-    prompt = PromptTemplate(
-        input_variables=["data", "question", "history"],
-        template="""
-You are a professional financial analyst.
+    if qtype == "receivable":
+        total = metrics.get("total_receivable_amount", 0.0)
+        doc_count = metrics.get("receivable_documents", 0)
+        doc_ids = ", ".join([e["document_id"] for e in evidence]) if evidence else "none"
+        return (
+            f"For company {company_name}, the current receivable amount is {total:.2f}. "
+            f"This was calculated using {doc_count} receivable document(s) from financial_documents_clean.csv. "
+            f"Evidence documents: {doc_ids}."
+        )
+
+    if qtype == "payable":
+        total = metrics.get("total_payable_amount", 0.0)
+        doc_count = metrics.get("payable_documents", 0)
+        doc_ids = ", ".join([e["document_id"] for e in evidence]) if evidence else "none"
+        return (
+            f"For company {company_name}, the current payable amount is {total:.2f}. "
+            f"This was calculated using {doc_count} payable document(s) from financial_documents_clean.csv. "
+            f"Evidence documents: {doc_ids}."
+        )
+
+    if qtype in ["invoice_list", "receipt_list", "po_list", "dn_list"]:
+        doc_ids = ", ".join([e["document_id"] for e in evidence]) if evidence else "none"
+        return (
+            f"I found these matching documents for company {company_name}: {doc_ids}. "
+            f"All results were taken only from financial_documents_clean.csv."
+        )
+
+    return (
+        f"I generated this answer for company {company_name} using only financial_documents_clean.csv. "
+        f"{len(evidence)} matching record(s) were used as evidence."
+    )
+
+
+def generate_explainable_answer(question: str, company_name: str, result: dict) -> str:
+    if not result.get("success"):
+        return result.get("explanation", "No answer available.")
+
+    prompt = f"""
+You are a financial assistant.
 
 Rules:
-- Use ONLY the provided result
+- Use ONLY the provided analysis result
 - Do NOT invent numbers
-- Do NOT change the currency
-- If currency is not explicitly shown, do not assume one
-- If the result is aggregated across multiple records, explicitly say it is an aggregated total
-- Explain clearly and simply
-- If exact value is missing, say so
+- Do NOT invent document IDs
+- Mention that the answer is based only on financial_documents_clean.csv
+- Mention why the evidence documents were included
+- If a total is aggregated, explicitly say it is an aggregated total
+- Keep the answer clear and business-friendly
+- Do not mention any hidden source or external memory
 
-Conversation History:
-{history}
+Company Context:
+{company_name}
 
-Available Result:
-{data}
-
-Question:
+User Question:
 {question}
 
+Analysis Result:
+{json.dumps(result, ensure_ascii=False, indent=2)}
+
 Answer:
-"""
-    )
+""".strip()
 
-    chain = prompt | llm
-
-    response = chain.invoke({
-        "data": data,
-        "question": question,
-        "history": history_text
-    }).strip()
-
-    chat_history.append(f"User: {question}")
-    chat_history.append(f"AI: {response}")
-
-    return response
+    try:
+        response = call_ollama(prompt)
+        return response if response else build_fallback_answer(question, company_name, result)
+    except Exception:
+        return build_fallback_answer(question, company_name, result)

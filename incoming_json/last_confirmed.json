@@ -1,56 +1,45 @@
 {
   "document_id": "",
-  "document_type": "receipt",
-  "order_id": "8",
+  "document_type": "invoice",
+  "order_id": "4003",
   "flow_type": "receivable",
-  "company_name": "චාමර සැලෝන්",
-  "supplier_name": "NULL",
-  "date": "9/8/2025",
-  "raw_total_amount": "1300",
-  "final_total_amount": "1300",
-  "payable_amount": 200,
-  "cash_return": 200,
-  "currency": "Rs",
+  "company_name": "AIESEC",
+  "supplier_name": "Dilmi Bandara",
+  "date": "31/03/2026",
+  "currency": "NULL",
+  "raw_total_amount": 30000,
+  "final_total_amount": 0,
+  "payable_amount": 30000,
+  "cash_return": 0,
   "received_status": "NULL",
-  "paid_status": "not_paid",
-  "status": "confirmed",
-  "language": "",
-  "corrected_text": "නොරූවන් සරණයී\nචාමර සැලෝන්\nකඩවන\n0772692057\nDate: 9/8/2025 4:23 2 PM\nOrder ID: 8 600\nNo. ජෙවාව\nමුදල\nකොණ්ඩය කැපීමට (වැඩිහිටි)\n600\n2 කොණ්ඩය කැපීමට (පොඩිහිට්)\n400\n3 රැවල කැපීමට\n300\nRs\nTotal:\n.300\nRs\nCash return:\n200\nBe Focus Your Look",
+  "paid_status": "not paid",
   "items": [
     {
-      "description": "කොණ්ඩය කැපීමට (වැඩිහිටි)",
-      "quantity": "1",
-      "unit_price": 600
-    },
-    {
-      "description": "කොණ්ඩය කැපීමට (පොඩිහිට්)",
+      "description": "oGV EP Fee-Dilmi Bandara",
       "quantity": 1,
-      "unit_price": 400
-    },
-    {
-      "description": "රැවල කැපීමට",
-      "quantity": 1,
-      "unit_price": 300
+      "unit_price": 30000
     }
   ],
-  "raw_text": "නොරූවන් සරණයී\nචාමර සැලෝන්\nකඩවන\n0772692057\nDate: 9/8/2025 4:23 PM\nOrder ID: 8\nNo. ජෙවාව\nමුදල\nකොණ්ඩය කැපීමට (වැඩිහිටි)\n600\n2 කොණ්ඩය කැපීමට (පොඩිහිට්)\n400\n3 රැවල කැපීමට\n300\nRs\nTotal:\n.300\nRs\nCash return:\n200\nBe Focus Your Look",
-  "ocr_selected_version": "orig",
+  "corrected_text": "AVIBSEC WAY\nAIESEC\n102/2\nMaharagama, Colombo __TOKEN___TOKEN_16____ LKA\n+9412848508\nsrilanka@aiesec.net\nwww.aiesec.lk\nGovt. UID GA-577\nINVOICE\nBILL TO\nINVOICE\n4003\nDilmi Bandara,\nDATE\n31/03/2026\nNo 294/3,\nTERMS\nNet 15\nDUE DATE\n15/04/2026\nGonahena,\nKadawatha\nDATE\nAMOUNT\nDESCRIPTION\n31/03/2026\noGV EP Fee-Dilmi Bandara\n30,000.00\nLRs30,000.00\nBALANCE DUE\n•\nNOTE:\nAll Cheques should be drawn in favor of 'AIESEC'\nAccount Name: AIESEC\nAccount Number: 115010147673\nBank Name:\nHatton National Bank\nBank Branch:\nKollupitiya\n7083\nBank Code:\n115\nBranch Code:\nHBLILKLX\nSWIFT Code:\n٠\nAIESEC in Sri Lanka\nPage 1 of 1",
+  "raw_text": "AVIBSEC WAY\nAIESEC\n102/2\nMaharagama, Colombo 10380 LKA\n+9412848508\nsrilanka@aiesec.net\nwww.aiesec.lk\nGovt. UID GA-577\nINVOICE\nBILL TO\nINVOICE\n4003\nDilmi Bandara,\nDATE\n31/03/2026\nNo 294/3,\nTERMS\nNet 15\nDUE DATE\n15/04/2026\nGonahena,\nKadawatha\nDATE\nAMOUNT\nDESCRIPTION\n31/03/2026\noGV EP Fee-Dilmi Bandara\n30,000.00\nLRs30,000.00\nBALANCE DUE\n•\nNOTE:\nAll Cheques should be drawn in favor of 'AIESEC'\nAccount Name: AIESEC\nAccount Number: 115010147673\nBank Name:\nHatton National Bank\nBank Branch:\nKollupitiya\n7083\nBank Code:\n115\nBranch Code:\nHBLILKLX\nSWIFT Code:\n٠\nAIESEC in Sri Lanka\nPage 1 of 1",
+  "ocr_selected_version": "P",
   "ocr_scores": {
     "orig": {
-      "score": 16.96,
-      "text_length": 223,
-      "line_count": 21
+      "score": 3.8,
+      "text_length": 620,
+      "line_count": 45
     },
     "P": {
-      "score": 8.84,
-      "text_length": 242,
-      "line_count": 20
+      "score": 9.3,
+      "text_length": 615,
+      "line_count": 48
     },
     "M": {
-      "score": 16.82,
-      "text_length": 216,
-      "line_count": 20
+      "score": 3.8,
+      "text_length": 625,
+      "line_count": 45
     }
   },
-  "ocr_failures": {}
+  "ocr_failures": {},
+  "status": "confirmed"
 }

@@ -5,7 +5,8 @@ import uuid
 from copy import deepcopy
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile
+import jwt
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,13 +18,22 @@ from dataset_manager import (
     save_input_json,
     find_duplicate_record,
     load_all_records,
+    get_record_by_id_for_user,
 )
+from ai_helper import generate_explainable_answer
+from data_tools import analyze_financial_query
+
+JWT_SECRET = "your_super_secret_key_123"
+JWT_ALGORITHM = "HS256"
 
 app = FastAPI(title="SME-GPT Financial Document Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +45,29 @@ SAVED_DOCS_DIR = Path("saved_documents")
 SAVED_DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 app.mount("/saved-documents", StaticFiles(directory=str(SAVED_DOCS_DIR)), name="saved-documents")
+
+
+def get_current_user_id(authorization: str = Header(default=None)) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header.")
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid Authorization format.")
+
+    token = authorization.replace("Bearer ", "").strip()
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("userId")
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload.")
+
+        return str(user_id)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token.")
 
 
 def to_preview_data(fields: dict) -> dict:
@@ -110,18 +143,16 @@ def save_document_image_from_session(session_meta: dict, document_id: str):
     return f"/saved-documents/{dst.name}"
 
 
-def build_document_detail(document_id: str):
-    records = load_all_records()
+def build_document_detail(user_id: str, document_id: str):
+    record = get_record_by_id_for_user(user_id=user_id, document_id=document_id)
 
-    for record in records:
-        if record.get("document_id") == document_id:
-            detail = {
-                **record,
-                "image_url": get_saved_image_url(document_id),
-            }
-            return detail
+    if not record:
+        return None
 
-    return None
+    return {
+        **record,
+        "image_url": get_saved_image_url(document_id),
+    }
 
 
 class ConfirmSaveRequest(BaseModel):
@@ -130,8 +161,14 @@ class ConfirmSaveRequest(BaseModel):
     force_save: bool = False
 
 
+class QueryRequest(BaseModel):
+    company_name: str
+    question: str
+
+
 @app.get("/health")
 def health():
+    print("[HEALTH] /health checked", flush=True)
     return {
         "success": True,
         "message": "Backend is running."
@@ -139,20 +176,31 @@ def health():
 
 
 @app.post("/process-document")
-async def process_document(file: UploadFile = File(...)):
+async def process_document(
+    file: UploadFile = File(...),
+    authorization: str = Header(default=None),
+):
+    print("\n==============================", flush=True)
+    print("[API] /process-document START", flush=True)
+
+    _ = get_current_user_id(authorization)
     temp_dir = tempfile.mkdtemp(prefix="smegpt_")
 
     try:
         if not file.filename:
+            print("[API] No file uploaded", flush=True)
             return JSONResponse(
                 status_code=400,
                 content={"success": False, "message": "No file uploaded."}
             )
 
+        print(f"[API] Received file: {file.filename}", flush=True)
+
         ext = Path(file.filename).suffix.lower()
         allowed_exts = {".pdf", ".png", ".jpg", ".jpeg"}
 
         if ext not in allowed_exts:
+            print(f"[API] Unsupported file type: {ext}", flush=True)
             return JSONResponse(
                 status_code=400,
                 content={
@@ -166,7 +214,13 @@ async def process_document(file: UploadFile = File(...)):
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
+        print(f"[API] Temp file saved: {temp_file_path}", flush=True)
+        print("[API] Launching document pipeline...", flush=True)
+
         result = process_uploaded_document(temp_file_path)
+
+        print("[API] Document pipeline completed successfully", flush=True)
+
         fields = result["extracted_fields"]
         preview = to_preview_data(fields)
 
@@ -181,6 +235,10 @@ async def process_document(file: UploadFile = File(...)):
             }
         }
 
+        print(f"[API] Session created: {session_id}", flush=True)
+        print("[API] /process-document END", flush=True)
+        print("==============================\n", flush=True)
+
         return {
             "success": True,
             "message": "Document processed successfully.",
@@ -194,6 +252,10 @@ async def process_document(file: UploadFile = File(...)):
         }
 
     except Exception as e:
+        import traceback
+        print("[API] ERROR in /process-document", flush=True)
+        traceback.print_exc()
+
         return JSONResponse(
             status_code=500,
             content={
@@ -204,14 +266,23 @@ async def process_document(file: UploadFile = File(...)):
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+        print(f"[API] Temp folder cleaned: {temp_dir}", flush=True)
 
 
 @app.post("/confirm-save")
-def confirm_save(payload: ConfirmSaveRequest):
+def confirm_save(
+    payload: ConfirmSaveRequest,
+    authorization: str = Header(default=None),
+):
+    print("\n==============================", flush=True)
+    print("[API] /confirm-save START", flush=True)
+
     try:
+        user_id = get_current_user_id(authorization)
         session = PROCESSING_SESSIONS.get(payload.session_id)
 
         if not session:
+            print("[API] Session missing or expired", flush=True)
             return JSONResponse(
                 status_code=404,
                 content={
@@ -220,12 +291,15 @@ def confirm_save(payload: ConfirmSaveRequest):
                 }
             )
 
+        print(f"[API] Saving session: {payload.session_id}", flush=True)
         original_fields = session["fields"]
         final_data = merge_edited_preview_into_fields(original_fields, payload.edited_preview)
 
-        duplicate = find_duplicate_record(final_data)
+        print("[API] Checking duplicates...", flush=True)
+        duplicate = find_duplicate_record(final_data, user_id=user_id)
 
         if duplicate and not payload.force_save:
+            print(f"[API] Duplicate found: {duplicate.get('document_id', 'NULL')}", flush=True)
             return JSONResponse(
                 status_code=200,
                 content={
@@ -236,13 +310,20 @@ def confirm_save(payload: ConfirmSaveRequest):
                 }
             )
 
+        print("[API] Saving input JSON...", flush=True)
         save_input_json(final_data, "last_confirmed.json")
-        save_result = upsert_confirmed_record(final_data)
+
+        print("[API] Writing record to dataset...", flush=True)
+        save_result = upsert_confirmed_record(final_data, user_id=user_id)
 
         document_id = save_result["record"]["document_id"]
         image_url = save_document_image_from_session(session["meta"], document_id)
 
         PROCESSING_SESSIONS.pop(payload.session_id, None)
+
+        print(f"[API] Saved document: {document_id}", flush=True)
+        print("[API] /confirm-save END", flush=True)
+        print("==============================\n", flush=True)
 
         return {
             "success": True,
@@ -254,7 +335,20 @@ def confirm_save(payload: ConfirmSaveRequest):
             "record": save_result["record"]
         }
 
+    except HTTPException as http_err:
+        print(f"[API] Auth/HTTP error in /confirm-save: {http_err.detail}", flush=True)
+        return JSONResponse(
+            status_code=http_err.status_code,
+            content={
+                "success": False,
+                "message": http_err.detail,
+            }
+        )
     except Exception as e:
+        import traceback
+        print("[API] ERROR in /confirm-save", flush=True)
+        traceback.print_exc()
+
         return JSONResponse(
             status_code=500,
             content={
@@ -265,51 +359,153 @@ def confirm_save(payload: ConfirmSaveRequest):
 
 
 @app.get("/documents")
-def get_documents():
-    records = load_all_records()
-    return {
-        "success": True,
-        "documents": records
-    }
+def get_documents(authorization: str = Header(default=None)):
+    print("[API] /documents requested", flush=True)
+    try:
+        user_id = get_current_user_id(authorization)
+        records = load_all_records(user_id=user_id)
+
+        print(f"[API] Returned {len(records)} documents", flush=True)
+        return {
+            "success": True,
+            "documents": records
+        }
+    except HTTPException as http_err:
+        print(f"[API] Auth/HTTP error in /documents: {http_err.detail}", flush=True)
+        return JSONResponse(
+            status_code=http_err.status_code,
+            content={"success": False, "message": http_err.detail}
+        )
 
 
 @app.get("/documents/{document_id}")
-def get_document_by_id(document_id: str):
-    document = build_document_detail(document_id)
+def get_document_by_id(document_id: str, authorization: str = Header(default=None)):
+    print(f"[API] /documents/{document_id} requested", flush=True)
+    try:
+        user_id = get_current_user_id(authorization)
+        document = build_document_detail(user_id=user_id, document_id=document_id)
 
-    if not document:
+        if not document:
+            print(f"[API] Document not found for user: {document_id}", flush=True)
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "message": "Document not found."
+                }
+            )
+
+        print(f"[API] Document returned: {document_id}", flush=True)
+        return {
+            "success": True,
+            "document": document
+        }
+    except HTTPException as http_err:
+        print(f"[API] Auth/HTTP error in /documents/{{id}}: {http_err.detail}", flush=True)
         return JSONResponse(
-            status_code=404,
-            content={
-                "success": False,
-                "message": "Document not found."
-            }
+            status_code=http_err.status_code,
+            content={"success": False, "message": http_err.detail}
         )
-
-    return {
-        "success": True,
-        "document": document
-    }
 
 
 @app.get("/dashboard-summary")
-def dashboard_summary():
-    records = load_all_records()
+def dashboard_summary(authorization: str = Header(default=None)):
+    print("[API] /dashboard-summary requested", flush=True)
+    try:
+        user_id = get_current_user_id(authorization)
+        records = load_all_records(user_id=user_id)
 
-    total = len(records)
-    invoice = sum(1 for r in records if r.get("document_type") == "invoice")
-    receipt = sum(1 for r in records if r.get("document_type") == "receipt")
-    po = sum(1 for r in records if r.get("document_type") == "po")
-    dn = sum(1 for r in records if r.get("document_type") == "dn")
+        total = len(records)
+        invoice = sum(1 for r in records if str(r.get("document_type", "")).lower() == "invoice")
+        receipt = sum(1 for r in records if str(r.get("document_type", "")).lower() == "receipt")
+        po = sum(1 for r in records if str(r.get("document_type", "")).lower() == "po")
+        dn = sum(1 for r in records if str(r.get("document_type", "")).lower() == "dn")
 
-    recent_documents = records[:4]
+        recent_documents = list(reversed(records[-4:]))
 
-    return {
-        "success": True,
-        "total": total,
-        "invoice": invoice,
-        "receipt": receipt,
-        "po": po,
-        "dn": dn,
-        "recent_documents": recent_documents
-    }
+        print(
+            f"[API] Summary -> total={total}, invoice={invoice}, receipt={receipt}, po={po}, dn={dn}",
+            flush=True
+        )
+
+        return {
+            "success": True,
+            "total": total,
+            "invoice": invoice,
+            "receipt": receipt,
+            "po": po,
+            "dn": dn,
+            "recent_documents": recent_documents
+        }
+    except HTTPException as http_err:
+        print(f"[API] Auth/HTTP error in /dashboard-summary: {http_err.detail}", flush=True)
+        return JSONResponse(
+            status_code=http_err.status_code,
+            content={"success": False, "message": http_err.detail}
+        )
+
+
+@app.post("/ask-query")
+def ask_query(payload: QueryRequest):
+    print("[API] /ask-query START", flush=True)
+    try:
+        company_name = (payload.company_name or "").strip()
+        question = (payload.question or "").strip()
+
+        if not company_name:
+            print("[API] Query rejected: missing company name", flush=True)
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": "Company name is required before asking a question."
+                }
+            )
+
+        if not question:
+            print("[API] Query rejected: missing question", flush=True)
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": "Question is required."
+                }
+            )
+
+        print(f"[API] Company: {company_name}", flush=True)
+        print(f"[API] Question: {question}", flush=True)
+
+        analysis_result = analyze_financial_query(question, company_name)
+        final_answer = generate_explainable_answer(question, company_name, analysis_result)
+
+        print("[API] /ask-query END", flush=True)
+
+        return {
+            "success": analysis_result.get("success", False),
+            "company_name": company_name,
+            "question": question,
+            "answer": final_answer,
+            "explanation": analysis_result.get("explanation", ""),
+            "evidence": analysis_result.get("evidence", []),
+            "metrics": analysis_result.get("metrics", {}),
+            "source_file": analysis_result.get("source_file", "financial_documents_clean.csv"),
+        }
+
+    except Exception as e:
+        import traceback
+        print("[API] ERROR in /ask-query", flush=True)
+        traceback.print_exc()
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": f"Error while answering query: {str(e)}"
+            }
+        )
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("[BOOT] Starting backend with python app.py", flush=True)
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)

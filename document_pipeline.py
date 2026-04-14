@@ -1,3 +1,4 @@
+import os
 import time
 import shutil
 from pathlib import Path
@@ -13,8 +14,9 @@ from ocr_to_json_extractor import extract_structured_json_from_text
 # =========================
 # CONFIG
 # =========================
-COLAB_OCR_URL = None  
-POPPLER_PATH = None
+COLAB_OCR_URL ="https://catechizable-uncongruously-armani.ngrok-free.dev/"
+
+POPPLER_PATH = r"C:\Users\ASUS\Downloads\Release-25.12.0-0\poppler-25.12.0\Library\bin"
 
 TEMP_BASE = Path("temp_processing")
 RAW_DIR = TEMP_BASE / "raw"
@@ -55,15 +57,18 @@ def _safe_remove_dir_contents(folder: Path):
 
 
 def clean_temp_files():
+    print("[PIPELINE] Cleaning temp files...", flush=True)
     ensure_dirs()
     for folder in [RAW_DIR, ORIG_DIR, P_DIR, M_DIR]:
         _safe_remove_dir_contents(folder)
+    print("[PIPELINE] Temp folders ready", flush=True)
 
 
 # =========================
 # UPLOAD + STANDARDIZATION
 # =========================
 def save_uploaded_file(upload_path: str) -> Path:
+    print("[PIPELINE] Step 1: Saving uploaded file", flush=True)
     clean_temp_files()
 
     src = Path(upload_path)
@@ -72,13 +77,17 @@ def save_uploaded_file(upload_path: str) -> Path:
 
     dst = RAW_DIR / src.name
     shutil.copy(src, dst)
+
+    print(f"[PIPELINE] Raw file saved to: {dst}", flush=True)
     return dst
 
 
 def standardize_to_image(raw_file_path: Path) -> Path:
+    print("[PIPELINE] Step 2: Standardizing input to image", flush=True)
     output_path = ORIG_DIR / "page_001.png"
 
     if raw_file_path.suffix.lower() == ".pdf":
+        print("[PIPELINE] Detected PDF. Converting first page to image...", flush=True)
         if POPPLER_PATH:
             images = convert_from_path(str(raw_file_path), dpi=300, poppler_path=POPPLER_PATH)
         else:
@@ -88,8 +97,10 @@ def standardize_to_image(raw_file_path: Path) -> Path:
             raise ValueError("No pages found in uploaded PDF.")
 
         images[0].save(output_path, "PNG")
+        print(f"[PIPELINE] PDF converted to image: {output_path}", flush=True)
     else:
         shutil.copy(raw_file_path, output_path)
+        print(f"[PIPELINE] Image copied as standardized image: {output_path}", flush=True)
 
     return output_path
 
@@ -98,6 +109,7 @@ def standardize_to_image(raw_file_path: Path) -> Path:
 # PREPROCESSING
 # =========================
 def preprocess_image(orig_path: Path):
+    print("[PIPELINE] Step 3: Creating OCR image variants (orig, P, M)", flush=True)
     p_path = P_DIR / "page_001.png"
     m_path = M_DIR / "page_001.png"
 
@@ -106,6 +118,8 @@ def preprocess_image(orig_path: Path):
         raise ValueError("Failed to read standardized image.")
 
     h, w = img.shape[:2]
+    print(f"[PIPELINE] Original image size: {w}x{h}", flush=True)
+
     target_w = 1200
     if w < target_w:
         scale = target_w / w
@@ -114,6 +128,7 @@ def preprocess_image(orig_path: Path):
             (int(w * scale), int(h * scale)),
             interpolation=cv2.INTER_CUBIC
         )
+        print(f"[PIPELINE] Image upscaled to width {target_w}", flush=True)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -132,6 +147,11 @@ def preprocess_image(orig_path: Path):
     m_img = cv2.normalize(m_img, None, 0, 255, cv2.NORM_MINMAX)
     cv2.imwrite(str(m_path), m_img)
 
+    print(f"[PIPELINE] OCR versions saved:", flush=True)
+    print(f"           orig -> {orig_path}", flush=True)
+    print(f"           P    -> {p_path}", flush=True)
+    print(f"           M    -> {m_path}", flush=True)
+
     return {
         "orig": str(orig_path),
         "P": str(p_path),
@@ -143,13 +163,20 @@ def preprocess_image(orig_path: Path):
 # OCR + LLM PREVIEW
 # =========================
 def build_preview_from_versions(version_paths: dict) -> dict:
+    print("[PIPELINE] Step 4: Sending versions to OCR service", flush=True)
+    final_colab_url = COLAB_OCR_URL or os.getenv("COLAB_OCR_URL", "").strip()
+
+    if not final_colab_url:
+        raise ValueError("COLAB_OCR_URL is not set. Please set it before running the backend.")
 
     ocr_result = send_images_to_colab_ocr(
         orig_path=version_paths["orig"],
         p_path=version_paths["P"],
         m_path=version_paths["M"],
-        colab_url=None
+        colab_url=final_colab_url,
     )
+
+    print("[PIPELINE] Step 5: OCR response received", flush=True)
 
     versions = ocr_result.get("versions", {})
     failures = ocr_result.get("failures", {})
@@ -157,11 +184,12 @@ def build_preview_from_versions(version_paths: dict) -> dict:
     if not versions:
         raise ValueError(f"No OCR versions returned from Colab OCR API. Failures: {failures}")
 
-    print("\nReturned OCR versions:")
+    print("\n[PIPELINE] Returned OCR versions:", flush=True)
     for k, v in versions.items():
         preview = v.get("text", "")[:250] if isinstance(v, dict) else str(v)[:250]
-        print(f"{k} preview: {preview}")
+        print(f"  - {k} preview: {preview}", flush=True)
 
+    print("[PIPELINE] Step 6: Selecting best OCR version", flush=True)
     selection = select_best_ocr_version(versions)
 
     selected_version = selection["selected_version"]
@@ -172,16 +200,16 @@ def build_preview_from_versions(version_paths: dict) -> dict:
 
     selected_text = clean_ocr_text(selected_text)
 
-    print("\nLocal OCR selection complete.")
-    print("Selected version:", selected_version)
-    print("Scores:", selection["scores"])
-    print("OCR text preview:")
-    print(selected_text[:500])
+    print("\n[PIPELINE] Local OCR selection complete.", flush=True)
+    print(f"[PIPELINE] Selected version: {selected_version}", flush=True)
+    print(f"[PIPELINE] Scores: {selection['scores']}", flush=True)
+    print("[PIPELINE] OCR text preview:", flush=True)
+    print(selected_text[:500], flush=True)
 
-    print("\n[PIPELINE] Sending selected OCR text to correction LLM...")
+    print("\n[PIPELINE] Step 7: Sending selected OCR text to correction LLM...", flush=True)
     corrected_text = llm_refine_text(selected_text)
 
-    print("\n[PIPELINE] Sending corrected text to extraction LLM...")
+    print("\n[PIPELINE] Step 8: Sending corrected text to extraction LLM...", flush=True)
     extracted_json = extract_structured_json_from_text(corrected_text)
 
     extracted_json["document_type"] = str(
@@ -193,6 +221,8 @@ def build_preview_from_versions(version_paths: dict) -> dict:
     extracted_json["ocr_selected_version"] = selected_version
     extracted_json["ocr_scores"] = selection["scores"]
     extracted_json["ocr_failures"] = failures
+
+    print("[PIPELINE] Step 9: Preview build complete", flush=True)
 
     return {
         "selected_ocr_version": selected_version,
@@ -206,11 +236,17 @@ def build_preview_from_versions(version_paths: dict) -> dict:
 # FULL PIPELINE (PREVIEW ONLY)
 # =========================
 def process_uploaded_document(upload_path: str):
+    print("\n----------------------------------------", flush=True)
+    print("[PIPELINE] FULL DOCUMENT PIPELINE START", flush=True)
+    print(f"[PIPELINE] Input path: {upload_path}", flush=True)
+
     raw_file = save_uploaded_file(upload_path)
     orig_img = standardize_to_image(raw_file)
     versions = preprocess_image(orig_img)
-
     preview = build_preview_from_versions(versions)
+
+    print("[PIPELINE] FULL DOCUMENT PIPELINE END", flush=True)
+    print("----------------------------------------\n", flush=True)
 
     return {
         "uploaded_file": str(raw_file),

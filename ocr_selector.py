@@ -1,5 +1,6 @@
 import re
 
+
 def score_ocr_text(text: str) -> float:
     if not text or not isinstance(text, str):
         return 0.0
@@ -7,10 +8,8 @@ def score_ocr_text(text: str) -> float:
     score = 0.0
     clean = text.strip()
 
-    # Base score from text length
     score += min(len(clean) / 50.0, 10.0)
 
-    # Useful financial keywords
     keywords = [
         "date", "order", "invoice", "receipt", "total",
         "cash", "amount", "rs", "qty", "quantity", "po", "dn"
@@ -20,15 +19,12 @@ def score_ocr_text(text: str) -> float:
         if kw in lower_text:
             score += 1.5
 
-    # Reward numbers
     number_matches = re.findall(r'\d+', clean)
     score += min(len(number_matches) * 0.5, 5.0)
 
-    # Penalize HTML-like tags
     html_tags = re.findall(r"<[^>]+>", clean)
     score -= len(html_tags) * 1.2
 
-    # Penalize too many strange symbols
     strange_chars = re.findall(r'[^\w\s\.,:/()\-\u0D80-\u0DFF]', clean, flags=re.UNICODE)
     score -= min(len(strange_chars) * 0.1, 3.0)
 
@@ -36,6 +32,8 @@ def score_ocr_text(text: str) -> float:
 
 
 def select_best_ocr_version(versions: dict) -> dict:
+    print("[OCR_SELECTOR] Selecting best OCR version...", flush=True)
+
     if not versions:
         raise ValueError("No OCR versions provided.")
 
@@ -61,19 +59,26 @@ def select_best_ocr_version(versions: dict) -> dict:
             "pages": pages,
         }
 
+        print(
+            f"[OCR_SELECTOR] {version_name}: score={score}, lines={line_count}, chars={text_length}",
+            flush=True
+        )
+
     best_version = max(scored_versions.items(), key=lambda x: x[1]["score"])[0]
     best_data = scored_versions[best_version]
+
+    print(f"[OCR_SELECTOR] Best version selected: {best_version}", flush=True)
 
     return {
         "selected_version": best_version,
         "selected_text": best_data["full_text"],
         "selected_pages": best_data["pages"],
         "scores": {
-            k: {
-                "score": v["score"],
-                "text_length": v["text_length"],
-                "line_count": v["line_count"]
+            key: {
+                "score": value["score"],
+                "text_length": value["text_length"],
+                "line_count": value["line_count"],
             }
-            for k, v in scored_versions.items()
-        }
+            for key, value in scored_versions.items()
+        },
     }
